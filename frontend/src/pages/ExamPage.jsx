@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
+import html2canvas from 'html2canvas';
 import WebcamPreview from '../components/WebcamPreview';
 
 const QUESTIONS = [
@@ -59,10 +61,13 @@ function ExamPage() {
   const [fullscreenExitCount, setFullscreenExitCount] = useState(0);
   const [violationLog, setViolationLog] = useState([]);
   const [toast, setToast] = useState(null);
+  const [captureOverlay, setCaptureOverlay] = useState(null);
   const timerRef = useRef(null);
   const webcamRef = useRef(null);
   const violationCooldown = useRef({});
   const pageLeavingRef = useRef(false);
+  const pendingEvidenceRef = useRef([]);
+  const captureTimerRef = useRef(null);
 
   useEffect(() => {
     const savedStudent = sessionStorage.getItem('student');
@@ -94,6 +99,12 @@ function ExamPage() {
     }, 1000);
 
     return () => clearInterval(timerRef.current);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      window.clearTimeout(captureTimerRef.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -268,8 +279,87 @@ function ExamPage() {
     }
   };
 
-  const captureAndUpload = (violation) => {
-    console.debug('captureAndUpload pending Task 13:', violation);
+  const captureAndUpload = async (violations) => {
+    const primaryViolation = violations[0];
+    const mergedDescription =
+      violations.length === 1
+        ? primaryViolation.description
+        : violations
+            .map((entry, index) => `${index + 1}. [${entry.type}] ${entry.description}`)
+            .join(' | ');
+
+    const evidencePayload = {
+      ...primaryViolation,
+      description: mergedDescription,
+      grouped_types: violations.map((entry) => entry.type),
+    };
+
+    try {
+      setCaptureOverlay(evidencePayload);
+      await new Promise((resolve) => window.setTimeout(resolve, 180));
+
+      const target = document.getElementById('exam-content') || document.body;
+      const canvas = await html2canvas(target, {
+        useCORS: true,
+        allowTaint: true,
+        scale: 1,
+        logging: false,
+      });
+
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          setCaptureOverlay(null);
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append('student_id', evidencePayload.student_id);
+        formData.append('violation_type', evidencePayload.type);
+        formData.append('description', evidencePayload.description);
+        formData.append('occurred_at', evidencePayload.occurred_at);
+        formData.append(
+          'evidence_image',
+          blob,
+          `evidence_${Date.now()}.png`
+        );
+
+        try {
+          await axios.post('/api/violations', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+          console.log(
+            `Bukti pelanggaran [${evidencePayload.type}] berhasil dikirim`
+          );
+        } catch (uploadErr) {
+          console.error('Gagal upload bukti:', uploadErr);
+        } finally {
+          setCaptureOverlay((current) =>
+            current?.occurred_at === evidencePayload.occurred_at ? null : current
+          );
+        }
+      }, 'image/png');
+    } catch (err) {
+      setCaptureOverlay(null);
+      console.error('Gagal capture screenshot:', err);
+    }
+  };
+
+  const enqueueEvidenceCapture = (violation) => {
+    pendingEvidenceRef.current = [...pendingEvidenceRef.current, violation];
+
+    if (captureTimerRef.current) {
+      return;
+    }
+
+    captureTimerRef.current = window.setTimeout(() => {
+      const batch = pendingEvidenceRef.current;
+      pendingEvidenceRef.current = [];
+      captureTimerRef.current = null;
+
+      if (batch.length > 0) {
+        captureAndUpload(batch);
+      }
+    }, 1200);
   };
 
   const handleViolationDetected = (violationType, description) => {
@@ -299,7 +389,7 @@ function ExamPage() {
     };
 
     setViolationLog((prev) => [...prev, violation]);
-    captureAndUpload(violation);
+    enqueueEvidenceCapture(violation);
   };
 
   const returnToFullscreen = async () => {
@@ -348,6 +438,91 @@ function ExamPage() {
 
   return (
     <div className="exam-body pb-5" id="exam-content">
+      {captureOverlay && (
+        <div
+          style={{
+            position: 'fixed',
+            left: 20,
+            top: 84,
+            zIndex: 9998,
+            width: 'min(420px, calc(100vw - 40px))',
+            padding: '16px 18px',
+            borderRadius: '18px',
+            border: '2px solid #f97316',
+            background:
+              'linear-gradient(135deg, rgba(127,29,29,0.96), rgba(17,24,39,0.96))',
+            color: '#fff7ed',
+            boxShadow: '0 18px 45px rgba(0,0,0,0.35)',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              marginBottom: 10,
+            }}
+          >
+            <strong style={{ fontSize: '1rem', letterSpacing: '0.03em' }}>
+              BUKTI PELANGGARAN
+            </strong>
+            <span
+              style={{
+                padding: '4px 8px',
+                borderRadius: 999,
+                background: '#f97316',
+                color: '#111827',
+                fontSize: '0.74rem',
+                fontWeight: 800,
+              }}
+            >
+              {captureOverlay.type}
+            </span>
+          </div>
+
+          <div style={{ fontSize: '0.95rem', lineHeight: 1.5 }}>
+            <div>
+              <strong>Peserta:</strong> {student?.student_code} - {student?.name}
+            </div>
+            <div>
+              <strong>Waktu:</strong>{' '}
+              {new Date(captureOverlay.occurred_at).toLocaleString()}
+            </div>
+            <div style={{ marginTop: 8 }}>
+              <strong>Deskripsi:</strong> {captureOverlay.description}
+            </div>
+          </div>
+
+          <div
+            style={{
+              marginTop: 12,
+              paddingTop: 10,
+              borderTop: '1px solid rgba(255,255,255,0.18)',
+            }}
+          >
+            <div style={{ fontSize: '0.8rem', opacity: 0.9, marginBottom: 6 }}>
+              Log pelanggaran terbaru:
+            </div>
+            <div style={{ display: 'grid', gap: 6 }}>
+              {[...violationLog, captureOverlay].slice(-3).map((entry) => (
+                <div
+                  key={`${entry.type}-${entry.occurred_at}`}
+                  style={{
+                    padding: '8px 10px',
+                    borderRadius: 12,
+                    background: 'rgba(255,255,255,0.08)',
+                    fontSize: '0.8rem',
+                  }}
+                >
+                  <strong>{entry.type}</strong> - {entry.description}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {toast && (
         <div className="violation-toast alert alert-danger d-flex align-items-start gap-2 shadow">
           <span style={{ fontSize: '1.2rem' }}>⚠️</span>
