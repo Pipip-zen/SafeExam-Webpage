@@ -3,3 +3,4 @@ backend/node_modules/
 backend/database/*.db
 backend/database/*.db-shm
 backend/database/*.db-wal
+frontend/dist/
