@@ -1,10 +1,6 @@
 const VIOLATION_LABELS = {
   TAB_SWITCH: { label: 'Pindah Tab', icon: '🔀' },
-  WINDOW_BLUR: { label: 'Kehilangan Fokus', icon: '🪟' },
-  EXIT_FULLSCREEN: { label: 'Keluar Fullscreen', icon: '↙️' },
-  WEBCAM_DISABLED: { label: 'Kamera Mati', icon: '📵' },
   SUSPICIOUS_KEY: { label: 'Tombol Mencurigakan', icon: '⌨️' },
-  PAGE_RELOAD_ATTEMPT: { label: 'Coba Reload', icon: '🔄' },
 };
 
 function ViolationCard({ violation, onView, onDelete, onImageView, deleting }) {
@@ -17,7 +13,7 @@ function ViolationCard({ violation, onView, onDelete, onImageView, deleting }) {
     timeStyle: 'medium',
   });
 
-  const imageUrl = violation.evidence_image ? `${violation.evidence_image}` : null;
+  const imageUrl = violation.evidence_image || null;
 
   return (
     <div className="violation-card bg-white">
@@ -89,7 +85,10 @@ function ViolationCard({ violation, onView, onDelete, onImageView, deleting }) {
         </div>
 
         <div className="d-flex gap-2 mt-3">
-          <button className="btn btn-sm btn-outline-primary flex-fill" onClick={() => onView(violation)}>
+          <button
+            className="btn btn-sm btn-outline-primary flex-fill"
+            onClick={() => onView(violation)}
+          >
             Detail
           </button>
           <button

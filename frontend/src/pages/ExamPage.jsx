@@ -4,6 +4,11 @@ import axios from 'axios';
 import html2canvas from 'html2canvas';
 import WebcamPreview from '../components/WebcamPreview';
 
+const SUPPORTED_VIOLATION_TYPES = new Set([
+  'TAB_SWITCH',
+  'SUSPICIOUS_KEY',
+]);
+
 const QUESTIONS = [
   {
     id: 1,
@@ -58,7 +63,6 @@ function ExamPage() {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showFullscreenWarning, setShowFullscreenWarning] = useState(false);
-  const [fullscreenExitCount, setFullscreenExitCount] = useState(0);
   const [violationLog, setViolationLog] = useState([]);
   const [toast, setToast] = useState(null);
   const [captureOverlay, setCaptureOverlay] = useState(null);
@@ -68,6 +72,7 @@ function ExamPage() {
   const pageLeavingRef = useRef(false);
   const pendingEvidenceRef = useRef([]);
   const captureTimerRef = useRef(null);
+  const pendingHiddenCaptureRef = useRef(false);
 
   useEffect(() => {
     const savedStudent = sessionStorage.getItem('student');
@@ -117,21 +122,7 @@ function ExamPage() {
       setIsFullscreen(inFullscreen);
 
       if (!inFullscreen) {
-        handleViolationDetected(
-          'EXIT_FULLSCREEN',
-          'Peserta keluar dari mode fullscreen'
-        );
-        setFullscreenExitCount((prev) => {
-          const nextCount = prev + 1;
-
-          if (nextCount >= 2) {
-            forceExitExam();
-            return nextCount;
-          }
-
-          setShowFullscreenWarning(true);
-          return nextCount;
-        });
+        setShowFullscreenWarning(true);
       } else {
         setShowFullscreenWarning(false);
       }
@@ -151,18 +142,19 @@ function ExamPage() {
 
     const handleVisibility = () => {
       if (document.hidden) {
+        pendingHiddenCaptureRef.current = true;
         handleViolationDetected(
           'TAB_SWITCH',
           'Peserta berpindah tab atau meminimalkan jendela browser'
         );
+      } else if (
+        pendingHiddenCaptureRef.current &&
+        pendingEvidenceRef.current.length > 0 &&
+        !captureTimerRef.current
+      ) {
+        pendingHiddenCaptureRef.current = false;
+        scheduleEvidenceCapture(200);
       }
-    };
-
-    const handleBlur = () => {
-      handleViolationDetected(
-        'WINDOW_BLUR',
-        'Jendela browser kehilangan fokus'
-      );
     };
 
     const suspiciousKeys = [
@@ -221,26 +213,12 @@ function ExamPage() {
       );
     };
 
-    const handleBeforeUnload = (event) => {
-      pageLeavingRef.current = true;
-      event.preventDefault();
-      event.returnValue = '';
-      handleViolationDetected(
-        'PAGE_RELOAD_ATTEMPT',
-        'Peserta mencoba menutup atau reload halaman ujian'
-      );
-    };
-
     document.addEventListener('visibilitychange', handleVisibility);
-    window.addEventListener('blur', handleBlur);
     document.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('beforeunload', handleBeforeUnload);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibility);
-      window.removeEventListener('blur', handleBlur);
       document.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [student]);
 
@@ -279,6 +257,12 @@ function ExamPage() {
     }
   };
 
+  const waitForCaptureReady = async () => {
+    await new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+    await new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+    await new Promise((resolve) => window.setTimeout(resolve, 180));
+  };
+
   const captureAndUpload = async (violations) => {
     const primaryViolation = violations[0];
     const mergedDescription =
@@ -296,7 +280,7 @@ function ExamPage() {
 
     try {
       setCaptureOverlay(evidencePayload);
-      await new Promise((resolve) => window.setTimeout(resolve, 180));
+      await waitForCaptureReady();
 
       const target = document.getElementById('exam-content') || document.body;
       const canvas = await html2canvas(target, {
@@ -344,52 +328,75 @@ function ExamPage() {
     }
   };
 
-  const enqueueEvidenceCapture = (violation) => {
+  const enqueueEvidenceCapture = (violation, delay = 1200) => {
     pendingEvidenceRef.current = [...pendingEvidenceRef.current, violation];
 
     if (captureTimerRef.current) {
       return;
     }
 
-    captureTimerRef.current = window.setTimeout(() => {
-      const batch = pendingEvidenceRef.current;
-      pendingEvidenceRef.current = [];
-      captureTimerRef.current = null;
-
-      if (batch.length > 0) {
-        captureAndUpload(batch);
-      }
-    }, 1200);
+    scheduleEvidenceCapture(delay);
   };
 
-  const handleViolationDetected = (violationType, description) => {
+  const scheduleEvidenceCapture = (delay) => {
+    captureTimerRef.current = window.setTimeout(() => {
+      const batch = pendingEvidenceRef.current;
+      captureTimerRef.current = null;
+
+      if (batch.length === 0) {
+        return;
+      }
+
+      if (document.hidden) {
+        pendingHiddenCaptureRef.current = true;
+        return;
+      }
+
+      pendingEvidenceRef.current = [];
+      pendingHiddenCaptureRef.current = false;
+      captureAndUpload(batch);
+    }, delay);
+  };
+
+  const recordViolation = (violation, options = {}) => {
     const now = Date.now();
+    const { bypassCooldown = false, captureDelay = 1200 } = options;
 
     if (
-      violationCooldown.current[violationType] &&
-      now - violationCooldown.current[violationType] < 5000
+      !bypassCooldown &&
+      violationCooldown.current[violation.type] &&
+      now - violationCooldown.current[violation.type] < 5000
     ) {
       return;
     }
 
-    violationCooldown.current[violationType] = now;
+    violationCooldown.current[violation.type] = now;
 
-    console.warn(`[VIOLATION] ${violationType}: ${description}`);
+    console.warn(`[VIOLATION] ${violation.type}: ${violation.description}`);
 
-    setToast({ type: violationType, description, id: now });
+    setToast({ type: violation.type, description: violation.description, id: now });
     window.setTimeout(() => {
       setToast((current) => (current?.id === now ? null : current));
     }, 4000);
 
-    const violation = {
-      type: violationType,
-      description,
-      occurred_at: new Date().toISOString(),
-      student_id: student?.id,
-    };
-
     setViolationLog((prev) => [...prev, violation]);
-    enqueueEvidenceCapture(violation);
+    enqueueEvidenceCapture(violation, captureDelay);
+  };
+
+  const handleViolationDetected = (violationType, description, options = {}) => {
+    if (!SUPPORTED_VIOLATION_TYPES.has(violationType)) {
+      return;
+    }
+
+    recordViolation(
+      {
+        type: violationType,
+        description,
+        occurred_at: new Date().toISOString(),
+        student_id: student?.id,
+      },
+      options
+    );
   };
 
   const returnToFullscreen = async () => {
@@ -546,9 +553,7 @@ function ExamPage() {
         <div className="fullscreen-overlay">
           <h3 className="fw-bold">Anda keluar dari mode fullscreen</h3>
           <p className="text-muted" style={{ maxWidth: '400px' }}>
-            Klik tombol di bawah untuk kembali ke mode fullscreen dan
-            melanjutkan ujian. Jika Anda menekan ESC sekali lagi, Anda akan
-            keluar dari ujian.
+            Klik tombol di bawah untuk kembali ke mode fullscreen dan melanjutkan ujian.
           </p>
           <button
             className="btn btn-primary btn-lg px-5"

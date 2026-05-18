@@ -7,6 +7,10 @@ const db = require('../db');
 require('dotenv').config();
 
 const router = express.Router();
+const SUPPORTED_VIOLATION_TYPES = [
+  'TAB_SWITCH',
+  'SUSPICIOUS_KEY',
+];
 
 const uploadDir = path.resolve(
   __dirname,
@@ -47,6 +51,13 @@ router.post('/', upload.single('evidence_image'), (req, res) => {
     return res.status(400).json({
       success: false,
       message: 'student_id dan violation_type wajib diisi',
+    });
+  }
+
+  if (!SUPPORTED_VIOLATION_TYPES.includes(violation_type)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Jenis pelanggaran tidak didukung',
     });
   }
 
@@ -91,6 +102,7 @@ router.post('/', upload.single('evidence_image'), (req, res) => {
 
 router.get('/', (req, res) => {
   try {
+    const placeholders = SUPPORTED_VIOLATION_TYPES.map(() => '?').join(', ');
     const violations = db
       .prepare(`
         SELECT
@@ -104,9 +116,10 @@ router.get('/', (req, res) => {
           s.name as student_name
         FROM violations v
         JOIN students s ON v.student_id = s.id
+        WHERE v.violation_type IN (${placeholders})
         ORDER BY v.occurred_at DESC
       `)
-      .all();
+      .all(...SUPPORTED_VIOLATION_TYPES);
 
     res.json({ success: true, data: violations });
   } catch (err) {

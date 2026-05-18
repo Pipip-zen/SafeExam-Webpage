@@ -2,15 +2,7 @@ import { useEffect, useState } from 'react';
 import axios from 'axios';
 import ViolationCard from '../components/ViolationCard';
 
-const VIOLATION_TYPES = [
-  'Semua',
-  'TAB_SWITCH',
-  'WINDOW_BLUR',
-  'EXIT_FULLSCREEN',
-  'WEBCAM_DISABLED',
-  'SUSPICIOUS_KEY',
-  'PAGE_RELOAD_ATTEMPT',
-];
+const VIOLATION_TYPES = ['Semua', 'TAB_SWITCH', 'SUSPICIOUS_KEY'];
 
 function AdminDashboard() {
   const [violations, setViolations] = useState([]);
@@ -30,9 +22,7 @@ function AdminDashboard() {
       const response = await axios.get('/api/violations');
       setViolations(response.data.data);
     } catch {
-      setError(
-        'Gagal mengambil data pelanggaran. Pastikan backend berjalan.'
-      );
+      setError('Gagal mengambil data pelanggaran. Pastikan backend berjalan.');
     } finally {
       setLoading(false);
     }
@@ -61,36 +51,35 @@ function AdminDashboard() {
     }
   };
 
+  const supportedViolations = violations.filter((violation) =>
+    VIOLATION_TYPES.includes(violation.violation_type)
+  );
+
   const filtered =
     filter === 'Semua'
-      ? violations
-      : violations.filter((violation) => violation.violation_type === filter);
+      ? supportedViolations
+      : supportedViolations.filter(
+          (violation) => violation.violation_type === filter
+        );
 
   const stats = [
     {
       label: 'Total Pelanggaran',
-      value: violations.length,
+      value: supportedViolations.length,
       icon: '⚠️',
       color: '#ef4444',
     },
     {
       label: 'Pindah Tab',
-      value: violations.filter((item) => item.violation_type === 'TAB_SWITCH')
-        .length,
+      value: supportedViolations.filter(
+        (item) => item.violation_type === 'TAB_SWITCH'
+      ).length,
       icon: '🔀',
       color: '#6366f1',
     },
     {
-      label: 'Keluar Fullscreen',
-      value: violations.filter(
-        (item) => item.violation_type === 'EXIT_FULLSCREEN'
-      ).length,
-      icon: '↙️',
-      color: '#f59e0b',
-    },
-    {
       label: 'Tombol Mencurigakan',
-      value: violations.filter(
+      value: supportedViolations.filter(
         (item) => item.violation_type === 'SUSPICIOUS_KEY'
       ).length,
       icon: '⌨️',
@@ -328,7 +317,10 @@ function AdminDashboard() {
         </div>
       )}
 
-      <nav className="navbar navbar-expand-lg shadow-sm" style={{ background: '#0f172a' }}>
+      <nav
+        className="navbar navbar-expand-lg shadow-sm"
+        style={{ background: '#0f172a' }}
+      >
         <div className="container-lg">
           <span className="navbar-brand fw-bold text-white">
             🎓 Admin Dashboard
@@ -337,7 +329,10 @@ function AdminDashboard() {
             <span className="text-muted" style={{ fontSize: '0.8rem' }}>
               Exam Proctoring System
             </span>
-            <button className="btn btn-outline-light btn-sm" onClick={fetchViolations}>
+            <button
+              className="btn btn-outline-light btn-sm"
+              onClick={fetchViolations}
+            >
               🔄 Refresh
             </button>
           </div>
@@ -347,8 +342,11 @@ function AdminDashboard() {
       <div className="container-lg py-4">
         <div className="row g-3 mb-4">
           {stats.map((stat) => (
-            <div className="col-6 col-md-3" key={stat.label}>
-              <div className="card border-0 shadow-sm" style={{ borderRadius: '12px' }}>
+            <div className="col-6 col-md-4" key={stat.label}>
+              <div
+                className="card border-0 shadow-sm"
+                style={{ borderRadius: '12px' }}
+              >
                 <div className="card-body p-3">
                   <div className="d-flex justify-content-between align-items-start">
                     <div>
