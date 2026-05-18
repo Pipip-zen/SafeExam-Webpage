@@ -114,4 +114,39 @@ router.get('/', (req, res) => {
   }
 });
 
+router.delete('/:id', (req, res) => {
+  try {
+    const violation = db
+      .prepare('SELECT * FROM violations WHERE id = ?')
+      .get(req.params.id);
+
+    if (!violation) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'Pelanggaran tidak ditemukan' });
+    }
+
+    if (violation.evidence_image) {
+      const evidencePath = path.resolve(
+        __dirname,
+        '..',
+        violation.evidence_image.replace(/^\//, '')
+      );
+
+      if (fs.existsSync(evidencePath)) {
+        fs.unlinkSync(evidencePath);
+      }
+    }
+
+    db.prepare('DELETE FROM violations WHERE id = ?').run(req.params.id);
+
+    res.json({
+      success: true,
+      message: 'Pelanggaran berhasil dihapus',
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 module.exports = router;
