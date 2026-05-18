@@ -60,6 +60,7 @@ function ExamPage() {
   const [examFinished, setExamFinished] = useState(false);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const timerRef = useRef(null);
+  const webcamRef = useRef(null);
 
   useEffect(() => {
     const saved = sessionStorage.getItem('student');
@@ -118,6 +119,10 @@ function ExamPage() {
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {});
     }
+  };
+
+  const handleViolationDetected = (violationType, description) => {
+    console.warn('Violation detected:', violationType, description);
   };
 
   const currentQuestion = QUESTIONS[currentQuestionIndex];
@@ -323,7 +328,11 @@ function ExamPage() {
         </aside>
       </div>
 
-      <WebcamPreview student={student} />
+      <WebcamPreview
+        ref={webcamRef}
+        student={student}
+        onViolation={handleViolationDetected}
+      />
     </div>
   );
 }
