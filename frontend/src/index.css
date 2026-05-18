@@ -1,0 +1,70 @@
+:root {
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #f3efe6;
+  background:
+    radial-gradient(circle at top, rgba(255, 190, 92, 0.24), transparent 38%),
+    linear-gradient(135deg, #112031 0%, #20364f 48%, #0d1724 100%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+code {
+  font-family: "Consolas", "Courier New", monospace;
+}
+
+.app-shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.hero-card {
+  width: min(680px, 100%);
+  padding: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 24px;
+  background: rgba(8, 17, 27, 0.72);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(12px);
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  color: #ffbe5c;
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.hero-card h1 {
+  margin: 0;
+  font-size: clamp(2.2rem, 5vw, 4rem);
+  line-height: 1.05;
+}
+
+.hero-copy {
+  margin: 20px 0 0;
+  max-width: 52ch;
+  color: rgba(243, 239, 230, 0.84);
+  font-size: 1.05rem;
+  line-height: 1.7;
+}
