@@ -1,15 +1,16 @@
+import { Navigate, Route, Routes } from 'react-router-dom';
+import LoginPage from './pages/LoginPage';
+import ExamPage from './pages/ExamPage';
+import AdminDashboard from './pages/AdminDashboard';
+
 function App() {
   return (
-    <div className="app-shell">
-      <div className="hero-card">
-        <p className="eyebrow">SafeExam</p>
-        <h1>Vite + React frontend siap.</h1>
-        <p className="hero-copy">
-          Proxy untuk <code>/api</code> dan <code>/uploads</code> sudah
-          dikonfigurasi. Lanjutkan ke pembuatan halaman aplikasi.
-        </p>
-      </div>
-    </div>
+    <Routes>
+      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/exam" element={<ExamPage />} />
+      <Route path="/admin" element={<AdminDashboard />} />
+    </Routes>
   );
 }
 
