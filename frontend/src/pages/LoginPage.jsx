@@ -35,7 +35,8 @@ function LoginPage() {
     }
 
     sessionStorage.setItem('student', JSON.stringify(student));
-    navigate('/exam');
+    sessionStorage.removeItem('examReady');
+    navigate('/prejoin');
   };
 
   return (

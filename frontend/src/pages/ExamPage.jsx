@@ -12,13 +12,11 @@ const QUESTIONS = [
       'HyperText Modeling Language',
       'High Text Markup Language',
     ],
-    answer: 0,
   },
   {
     id: 2,
     question: 'Manakah yang merupakan bahasa pemrograman back-end?',
     options: ['HTML', 'CSS', 'Node.js', 'Bootstrap'],
-    answer: 2,
   },
   {
     id: 3,
@@ -29,13 +27,11 @@ const QUESTIONS = [
       'Menghubungkan ke database',
       'Mengelola routing aplikasi',
     ],
-    answer: 1,
   },
   {
     id: 4,
     question: 'Database manakah yang termasuk jenis NoSQL?',
     options: ['MySQL', 'PostgreSQL', 'SQLite', 'MongoDB'],
-    answer: 3,
   },
   {
     id: 5,
@@ -46,7 +42,6 @@ const QUESTIONS = [
       'Automated Program Index',
       'Advanced Programming Input',
     ],
-    answer: 1,
   },
 ];
 
@@ -59,18 +54,28 @@ function ExamPage() {
   const [timeLeft, setTimeLeft] = useState(EXAM_DURATION);
   const [examFinished, setExamFinished] = useState(false);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showFullscreenWarning, setShowFullscreenWarning] = useState(false);
+  const [fullscreenExitCount, setFullscreenExitCount] = useState(0);
   const timerRef = useRef(null);
   const webcamRef = useRef(null);
 
   useEffect(() => {
-    const saved = sessionStorage.getItem('student');
+    const savedStudent = sessionStorage.getItem('student');
+    const examReady = sessionStorage.getItem('examReady');
 
-    if (!saved) {
+    if (!savedStudent) {
       navigate('/login');
       return;
     }
 
-    setStudent(JSON.parse(saved));
+    if (!examReady) {
+      navigate('/prejoin');
+      return;
+    }
+
+    setStudent(JSON.parse(savedStudent));
+    setIsFullscreen(!!document.fullscreenElement);
 
     timerRef.current = setInterval(() => {
       setTimeLeft((prev) => {
@@ -85,6 +90,35 @@ function ExamPage() {
     }, 1000);
 
     return () => clearInterval(timerRef.current);
+  }, []);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const inFullscreen = !!document.fullscreenElement;
+      setIsFullscreen(inFullscreen);
+
+      if (!inFullscreen) {
+        setFullscreenExitCount((prev) => {
+          const nextCount = prev + 1;
+
+          if (nextCount >= 2) {
+            forceExitExam();
+            return nextCount;
+          }
+
+          setShowFullscreenWarning(true);
+          return nextCount;
+        });
+      } else {
+        setShowFullscreenWarning(false);
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
   }, []);
 
   const formatTime = (seconds) => {
@@ -125,6 +159,23 @@ function ExamPage() {
     console.warn('Violation detected:', violationType, description);
   };
 
+  const returnToFullscreen = async () => {
+    try {
+      await document.documentElement.requestFullscreen();
+      setIsFullscreen(true);
+      setShowFullscreenWarning(false);
+    } catch (err) {
+      console.warn('Fullscreen gagal:', err);
+    }
+  };
+
+  const forceExitExam = () => {
+    clearInterval(timerRef.current);
+    sessionStorage.removeItem('examReady');
+    sessionStorage.removeItem('student');
+    navigate('/login');
+  };
+
   const currentQuestion = QUESTIONS[currentQuestionIndex];
   const answeredCount = Object.keys(answers).length;
 
@@ -132,7 +183,7 @@ function ExamPage() {
     return (
       <div className="min-vh-100 d-flex align-items-center justify-content-center exam-body">
         <div className="text-center">
-          <div style={{ fontSize: '4rem' }}>✅</div>
+          <div style={{ fontSize: '4rem' }}>OK</div>
           <h2 className="fw-bold mt-3">Ujian Selesai</h2>
           <p className="text-muted">
             Terima kasih, {student?.name}. Jawaban Anda telah dicatat.
@@ -153,6 +204,23 @@ function ExamPage() {
 
   return (
     <div className="exam-body pb-5" id="exam-content">
+      {showFullscreenWarning && (
+        <div className="fullscreen-overlay">
+          <h3 className="fw-bold">Anda keluar dari mode fullscreen</h3>
+          <p className="text-muted" style={{ maxWidth: '400px' }}>
+            Klik tombol di bawah untuk kembali ke mode fullscreen dan
+            melanjutkan ujian. Jika Anda menekan ESC sekali lagi, Anda akan
+            keluar dari ujian.
+          </p>
+          <button
+            className="btn btn-primary btn-lg px-5"
+            onClick={returnToFullscreen}
+          >
+            Lanjutkan Ujian
+          </button>
+        </div>
+      )}
+
       <div
         className="sticky-top"
         style={{
@@ -171,7 +239,12 @@ function ExamPage() {
             </span>
           </div>
           <div className="d-flex align-items-center gap-3">
-            <span className={timerClass()}>⏱ {formatTime(timeLeft)}</span>
+            <span className={timerClass()}>Timer {formatTime(timeLeft)}</span>
+            {!isFullscreen && (
+              <span className="badge text-bg-warning text-dark">
+                Tidak fullscreen
+              </span>
+            )}
             <button
               className="btn btn-outline-light btn-sm"
               onClick={handleFinish}
@@ -271,7 +344,7 @@ function ExamPage() {
             className="mt-4 p-3 rounded"
             style={{ background: '#1e293b', border: '1px solid #334155' }}
           >
-            <small className="text-muted">
+            <small style={{ color: '#cbd5e1' }}>
               Jawaban tersimpan otomatis. Gunakan panel kanan untuk lompat ke
               soal tertentu, atau klik <strong>"Selesai Ujian"</strong> jika
               sudah selesai.
@@ -328,11 +401,7 @@ function ExamPage() {
         </aside>
       </div>
 
-      <WebcamPreview
-        ref={webcamRef}
-        student={student}
-        onViolation={handleViolationDetected}
-      />
+      <WebcamPreview ref={webcamRef} onViolation={handleViolationDetected} />
     </div>
   );
 }

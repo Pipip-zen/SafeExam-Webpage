@@ -6,200 +6,243 @@ import {
   useState,
 } from 'react';
 
-const WebcamPreview = forwardRef(({ student, onViolation }, ref) => {
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
-  const readyTimeoutRef = useRef(null);
-  const readinessPollRef = useRef(null);
-  const attemptRef = useRef(0);
-  const [webcamActive, setWebcamActive] = useState(false);
-  const [permissionDenied, setPermissionDenied] = useState(false);
-  const [videoReady, setVideoReady] = useState(false);
-  const [statusMessage, setStatusMessage] = useState('Menghubungkan kamera...');
+const WebcamPreview = forwardRef(
+  ({ onViolation, onStatusChange, floating = true }, ref) => {
+    const videoRef = useRef(null);
+    const streamRef = useRef(null);
+    const readinessPollRef = useRef(null);
+    const readyTimeoutRef = useRef(null);
+    const attemptRef = useRef(0);
+    const [webcamActive, setWebcamActive] = useState(false);
+    const [permissionDenied, setPermissionDenied] = useState(false);
+    const [permissionState, setPermissionState] = useState('prompt');
+    const [videoReady, setVideoReady] = useState(false);
+    const [statusMessage, setStatusMessage] = useState(
+      'Menghubungkan kamera...'
+    );
 
-  useImperativeHandle(ref, () => ({
-    getVideoElement: () => videoRef.current,
-    isActive: () => webcamActive && videoReady,
-  }));
+    useImperativeHandle(ref, () => ({
+      getVideoElement: () => videoRef.current,
+      isActive: () => webcamActive && videoReady,
+    }));
 
-  useEffect(() => {
-    startWebcam();
+    useEffect(() => {
+      startWebcam();
 
-    return () => stopWebcam();
-  }, []);
+      return () => stopWebcam();
+    }, []);
 
-  const startWebcam = async () => {
-    const attemptId = ++attemptRef.current;
+    useEffect(() => {
+      let permissionStatus;
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'user',
-          width: { ideal: 320 },
-          height: { ideal: 240 },
-        },
-        audio: false,
-      });
-
-      if (attemptId !== attemptRef.current) {
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-      }
-
-      streamRef.current = stream;
-      setStatusMessage('Menghubungkan kamera...');
-      setWebcamActive(true);
-      setPermissionDenied(false);
-      setVideoReady(false);
-
-      if (videoRef.current) {
-        const video = videoRef.current;
-
-        video.muted = true;
-        video.playsInline = true;
-        video.autoplay = true;
-        video.srcObject = stream;
-
-        try {
-          await video.play();
-        } catch (playError) {
-          if (
-            playError?.name !== 'AbortError' ||
-            attemptId === attemptRef.current
-          ) {
-            console.error('Gagal memutar preview webcam:', playError);
-            setStatusMessage('Preview kamera gagal diputar');
-          }
-        }
-      }
-
-      readinessPollRef.current = setInterval(() => {
-        if (!videoRef.current || attemptId !== attemptRef.current) {
+      const syncPermission = async () => {
+        if (!navigator.permissions?.query) {
           return;
         }
 
-        const video = videoRef.current;
-        const hasFrame =
-          video.videoWidth > 0 &&
-          video.videoHeight > 0 &&
-          video.readyState >= 2 &&
-          !video.paused;
-
-        if (hasFrame) {
-          clearInterval(readinessPollRef.current);
-          clearTimeout(readyTimeoutRef.current);
-          setVideoReady(true);
-          setStatusMessage('');
+        try {
+          permissionStatus = await navigator.permissions.query({
+            name: 'camera',
+          });
+          setPermissionState(permissionStatus.state);
+          permissionStatus.onchange = () => {
+            setPermissionState(permissionStatus.state);
+          };
+        } catch (err) {
+          // Some browsers do not support querying camera permission.
         }
-      }, 250);
+      };
 
-      readyTimeoutRef.current = setTimeout(() => {
-        if (
-          videoRef.current &&
-          (videoRef.current.videoWidth === 0 ||
-            videoRef.current.videoHeight === 0)
-        ) {
-          setStatusMessage('Kamera terdeteksi, tapi preview belum muncul');
+      syncPermission();
+
+      return () => {
+        if (permissionStatus) {
+          permissionStatus.onchange = null;
         }
-      }, 4000);
+      };
+    }, []);
 
-      stream.getVideoTracks()[0].addEventListener('ended', () => {
+    useEffect(() => {
+      if (!onStatusChange) {
+        return;
+      }
+
+      onStatusChange({
+        active: webcamActive,
+        ready: webcamActive && videoReady,
+        permissionDenied,
+        message: statusMessage,
+      });
+    }, [onStatusChange, webcamActive, videoReady, permissionDenied, statusMessage]);
+
+    const startWebcam = async () => {
+      const attemptId = ++attemptRef.current;
+
+      clearInterval(readinessPollRef.current);
+      clearTimeout(readyTimeoutRef.current);
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: 'user',
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+          },
+          audio: false,
+        });
+
+        if (attemptId !== attemptRef.current) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((track) => track.stop());
+        }
+
+        streamRef.current = stream;
+        setWebcamActive(true);
+        setPermissionDenied(false);
+        setPermissionState('granted');
+        setVideoReady(false);
+        setStatusMessage('Menghubungkan kamera...');
+
+        if (videoRef.current) {
+          const video = videoRef.current;
+          video.srcObject = stream;
+          video.muted = true;
+          video.playsInline = true;
+          video.autoplay = true;
+
+          try {
+            await video.play();
+          } catch (playError) {
+            if (playError?.name !== 'AbortError') {
+              setStatusMessage('Preview kamera gagal diputar');
+            }
+          }
+        }
+
+        readinessPollRef.current = setInterval(() => {
+          if (!videoRef.current || attemptId !== attemptRef.current) {
+            return;
+          }
+
+          const video = videoRef.current;
+          const hasFrame =
+            video.readyState >= 2 &&
+            video.videoWidth > 0 &&
+            video.videoHeight > 0 &&
+            !video.paused;
+
+          if (hasFrame) {
+            clearInterval(readinessPollRef.current);
+            clearTimeout(readyTimeoutRef.current);
+            setVideoReady(true);
+            setStatusMessage('Preview kamera aktif');
+          }
+        }, 200);
+
+        readyTimeoutRef.current = setTimeout(() => {
+          if (
+            videoRef.current &&
+            (videoRef.current.videoWidth === 0 ||
+              videoRef.current.videoHeight === 0)
+          ) {
+            setStatusMessage('Kamera terdeteksi, tapi preview belum muncul');
+          }
+        }, 4000);
+
+        const [track] = stream.getVideoTracks();
+
+        if (track) {
+          track.addEventListener('ended', () => {
+            if (attemptId !== attemptRef.current) {
+              return;
+            }
+
+            setWebcamActive(false);
+            setVideoReady(false);
+            setStatusMessage('Kamera dihentikan');
+
+            if (onViolation) {
+              onViolation(
+                'WEBCAM_DISABLED',
+                'Kamera berhenti atau dinonaktifkan oleh sistem'
+              );
+            }
+          });
+        }
+      } catch (err) {
         if (attemptId !== attemptRef.current) {
           return;
         }
 
         setWebcamActive(false);
+        setPermissionDenied(true);
+        setPermissionState('denied');
         setVideoReady(false);
-        setStatusMessage('Kamera dihentikan');
+        setStatusMessage(
+          'Izin kamera ditolak atau device tidak tersedia'
+        );
 
         if (onViolation) {
-          onViolation(
-            'WEBCAM_DISABLED',
-            'Kamera berhenti atau dinonaktifkan oleh sistem'
-          );
+          onViolation('WEBCAM_DISABLED', 'Izin kamera ditolak oleh peserta');
         }
-      });
-    } catch (err) {
-      if (attemptId !== attemptRef.current) {
-        return;
+      }
+    };
+
+    const stopWebcam = () => {
+      attemptRef.current += 1;
+      clearInterval(readinessPollRef.current);
+      clearTimeout(readyTimeoutRef.current);
+
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.srcObject = null;
+      }
+
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
       }
 
       setWebcamActive(false);
-      setPermissionDenied(true);
       setVideoReady(false);
-      setStatusMessage('Izin kamera ditolak atau device tidak tersedia');
+      setStatusMessage('Kamera nonaktif');
+    };
 
-      if (onViolation) {
-        onViolation('WEBCAM_DISABLED', 'Izin kamera ditolak oleh peserta');
-      }
-    }
-  };
+    return (
+      <div className={`webcam-preview${floating ? '' : ' webcam-preview-inline'}`}>
+        <div className="webcam-label">Camera</div>
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          style={{
+            width: '100%',
+            height: floating ? '135px' : '315px',
+            objectFit: 'cover',
+            display: webcamActive && videoReady ? 'block' : 'none',
+          }}
+        />
 
-  const stopWebcam = () => {
-    attemptRef.current += 1;
-    clearTimeout(readyTimeoutRef.current);
-    clearInterval(readinessPollRef.current);
-
-    if (videoRef.current) {
-      videoRef.current.pause();
-      videoRef.current.srcObject = null;
-    }
-
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-    setWebcamActive(false);
-    setVideoReady(false);
-  };
-
-  return (
-    <div className="webcam-preview">
-      <div className="webcam-label">Camera</div>
-      <video
-        ref={videoRef}
-        autoPlay
-        muted
-        playsInline
-        style={{
-          width: '100%',
-          height: '135px',
-          objectFit: 'cover',
-          display: webcamActive && videoReady ? 'block' : 'none',
-        }}
-      />
-      {!webcamActive ? (
+        {!webcamActive ? (
         <div className="webcam-disabled-overlay">
-          <span style={{ fontSize: '1.5rem' }}>Camera Off</span>
+          <span style={{ fontSize: '1.4rem' }}>Camera Off</span>
           <span>{permissionDenied ? 'Izin Ditolak' : 'Kamera Nonaktif'}</span>
-          {permissionDenied && (
-            <button
-              className="btn btn-sm btn-outline-light mt-1"
-              style={{ fontSize: '10px', padding: '2px 8px' }}
-              onClick={startWebcam}
-            >
-              Coba Lagi
-            </button>
-          )}
         </div>
-      ) : !videoReady ? (
-        <div className="webcam-disabled-overlay">
-          <span style={{ fontSize: '1.1rem' }}>{statusMessage}</span>
-          <span>Menunggu frame pertama tampil</span>
-          <small style={{ color: '#fca5a5', textAlign: 'center' }}>
-            {videoRef.current
-              ? `state:${videoRef.current.readyState} size:${videoRef.current.videoWidth}x${videoRef.current.videoHeight}`
-              : 'video belum siap'}
-          </small>
-        </div>
-      ) : null}
-    </div>
-  );
-});
+        ) : !videoReady ? (
+          <div className="webcam-disabled-overlay">
+            <span style={{ fontSize: '1.05rem' }}>{statusMessage}</span>
+            <span>Menunggu frame pertama tampil</span>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+);
 
 WebcamPreview.displayName = 'WebcamPreview';
 
