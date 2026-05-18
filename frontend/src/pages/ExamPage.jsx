@@ -57,8 +57,12 @@ function ExamPage() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showFullscreenWarning, setShowFullscreenWarning] = useState(false);
   const [fullscreenExitCount, setFullscreenExitCount] = useState(0);
+  const [violationLog, setViolationLog] = useState([]);
+  const [toast, setToast] = useState(null);
   const timerRef = useRef(null);
   const webcamRef = useRef(null);
+  const violationCooldown = useRef({});
+  const pageLeavingRef = useRef(false);
 
   useEffect(() => {
     const savedStudent = sessionStorage.getItem('student');
@@ -94,10 +98,18 @@ function ExamPage() {
 
   useEffect(() => {
     const handleFullscreenChange = () => {
+      if (pageLeavingRef.current) {
+        return;
+      }
+
       const inFullscreen = !!document.fullscreenElement;
       setIsFullscreen(inFullscreen);
 
       if (!inFullscreen) {
+        handleViolationDetected(
+          'EXIT_FULLSCREEN',
+          'Peserta keluar dari mode fullscreen'
+        );
         setFullscreenExitCount((prev) => {
           const nextCount = prev + 1;
 
@@ -120,6 +132,106 @@ function ExamPage() {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
   }, []);
+
+  useEffect(() => {
+    if (!student) {
+      return;
+    }
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        handleViolationDetected(
+          'TAB_SWITCH',
+          'Peserta berpindah tab atau meminimalkan jendela browser'
+        );
+      }
+    };
+
+    const handleBlur = () => {
+      handleViolationDetected(
+        'WINDOW_BLUR',
+        'Jendela browser kehilangan fokus'
+      );
+    };
+
+    const suspiciousKeys = [
+      { key: 'F12', check: (event) => event.key === 'F12' },
+      { key: 'F5', check: (event) => event.key === 'F5' },
+      {
+        key: 'Ctrl+Shift+I',
+        check: (event) =>
+          event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'i',
+      },
+      {
+        key: 'Ctrl+Shift+J',
+        check: (event) =>
+          event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'j',
+      },
+      {
+        key: 'Ctrl+Shift+C',
+        check: (event) =>
+          event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'c',
+      },
+      {
+        key: 'Ctrl+T',
+        check: (event) => event.ctrlKey && event.key.toLowerCase() === 't',
+      },
+      {
+        key: 'Ctrl+N',
+        check: (event) => event.ctrlKey && event.key.toLowerCase() === 'n',
+      },
+      {
+        key: 'Ctrl+W',
+        check: (event) => event.ctrlKey && event.key.toLowerCase() === 'w',
+      },
+      {
+        key: 'Ctrl+R',
+        check: (event) => event.ctrlKey && event.key.toLowerCase() === 'r',
+      },
+      {
+        key: 'Cmd+R',
+        check: (event) => event.metaKey && event.key.toLowerCase() === 'r',
+      },
+      { key: 'Alt+Tab', check: (event) => event.altKey && event.key === 'Tab' },
+      { key: 'Win Key', check: (event) => event.key === 'Meta' },
+    ];
+
+    const handleKeyDown = (event) => {
+      const matched = suspiciousKeys.find((entry) => entry.check(event));
+
+      if (!matched) {
+        return;
+      }
+
+      event.preventDefault();
+      handleViolationDetected(
+        'SUSPICIOUS_KEY',
+        `Peserta menekan tombol mencurigakan: ${matched.key}`
+      );
+    };
+
+    const handleBeforeUnload = (event) => {
+      pageLeavingRef.current = true;
+      event.preventDefault();
+      event.returnValue = '';
+      handleViolationDetected(
+        'PAGE_RELOAD_ATTEMPT',
+        'Peserta mencoba menutup atau reload halaman ujian'
+      );
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('blur', handleBlur);
+    document.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('blur', handleBlur);
+      document.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [student]);
 
   const formatTime = (seconds) => {
     const minutes = Math.floor(seconds / 60)
@@ -147,6 +259,7 @@ function ExamPage() {
   };
 
   const handleFinish = () => {
+    pageLeavingRef.current = true;
     clearInterval(timerRef.current);
     setExamFinished(true);
 
@@ -155,8 +268,38 @@ function ExamPage() {
     }
   };
 
+  const captureAndUpload = (violation) => {
+    console.debug('captureAndUpload pending Task 13:', violation);
+  };
+
   const handleViolationDetected = (violationType, description) => {
-    console.warn('Violation detected:', violationType, description);
+    const now = Date.now();
+
+    if (
+      violationCooldown.current[violationType] &&
+      now - violationCooldown.current[violationType] < 5000
+    ) {
+      return;
+    }
+
+    violationCooldown.current[violationType] = now;
+
+    console.warn(`[VIOLATION] ${violationType}: ${description}`);
+
+    setToast({ type: violationType, description, id: now });
+    window.setTimeout(() => {
+      setToast((current) => (current?.id === now ? null : current));
+    }, 4000);
+
+    const violation = {
+      type: violationType,
+      description,
+      occurred_at: new Date().toISOString(),
+      student_id: student?.id,
+    };
+
+    setViolationLog((prev) => [...prev, violation]);
+    captureAndUpload(violation);
   };
 
   const returnToFullscreen = async () => {
@@ -170,6 +313,7 @@ function ExamPage() {
   };
 
   const forceExitExam = () => {
+    pageLeavingRef.current = true;
     clearInterval(timerRef.current);
     sessionStorage.removeItem('examReady');
     sessionStorage.removeItem('student');
@@ -204,6 +348,25 @@ function ExamPage() {
 
   return (
     <div className="exam-body pb-5" id="exam-content">
+      {toast && (
+        <div className="violation-toast alert alert-danger d-flex align-items-start gap-2 shadow">
+          <span style={{ fontSize: '1.2rem' }}>⚠️</span>
+          <div>
+            <strong>Pelanggaran Terdeteksi!</strong>
+            <div style={{ fontSize: '0.85rem' }}>{toast.description}</div>
+            <div
+              style={{
+                fontSize: '0.75rem',
+                opacity: 0.7,
+                marginTop: '2px',
+              }}
+            >
+              Kode: <code>{toast.type}</code>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showFullscreenWarning && (
         <div className="fullscreen-overlay">
           <h3 className="fw-bold">Anda keluar dari mode fullscreen</h3>
