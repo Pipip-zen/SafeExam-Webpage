@@ -1,0 +1,20 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      DB_PATH: ./backend/database/exam_proctoring.db
+      UPLOAD_DIR: ./uploads/evidence
+    volumes:
+      - app-db:/app/backend/database
+      - app-uploads:/app/uploads/evidence
+    restart: unless-stopped
+
+volumes:
+  app-db:
+  app-uploads:

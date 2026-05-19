@@ -36,6 +36,42 @@ npm run dev
 - Frontend: `http://localhost:3000`
 - Backend API: `http://localhost:5000`
 
+## Menjalankan Dengan Docker
+
+### Opsi 1. Docker Compose
+
+```bash
+docker compose up --build
+```
+
+Setelah container aktif:
+
+- Aplikasi web: `http://localhost:5000/login`
+- Dashboard admin: `http://localhost:5000/admin`
+- Healthcheck API: `http://localhost:5000/api/health`
+
+Data SQLite dan file bukti pelanggaran disimpan di named volume Docker:
+
+- `app-db`
+- `app-uploads`
+
+### Opsi 2. Docker CLI
+
+```bash
+docker build -t exam-proctoring-demo .
+docker run -p 5000:5000 \
+  -e NODE_ENV=production \
+  -e PORT=5000 \
+  -e DB_PATH=./backend/database/exam_proctoring.db \
+  -e UPLOAD_DIR=./uploads/evidence \
+  exam-proctoring-demo
+```
+
+Jika ingin data persisten saat memakai `docker run`, mount volume ke:
+
+- `/app/backend/database`
+- `/app/uploads/evidence`
+
 ### 3. Buka Aplikasi
 
 | Halaman | URL |
@@ -97,3 +133,4 @@ Database otomatis di-seed dengan 5 peserta:
 - Database SQLite dan folder upload dibuat otomatis saat backend pertama kali dijalankan.
 - Backend sekarang menerima log pelanggaran untuk `TAB_SWITCH` dan `SUSPICIOUS_KEY`.
 - Fullscreen tetap diwajibkan saat ujian, tetapi tidak lagi disimpan sebagai tipe pelanggaran di dashboard.
+- Saat dijalankan di Docker production, frontend dibuild oleh Vite lalu disajikan langsung oleh Express dari container yang sama.
